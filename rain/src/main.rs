@@ -55,7 +55,9 @@ fn main() -> Result<()> {
     let mut work_field = original_field.clone();
 
     loop {
-        // Change neighbors if drop found
+        // Change current cell based on neighbors
+        // _o, -> (_)
+        // _(, | _), -> __,
         let mut display_field = work_field
             .iter()
             .enumerate()
@@ -99,6 +101,7 @@ fn main() -> Result<()> {
             frame.render_widget(Paragraph::new(text).white().on_black(), area);
         })?;
 
+        // Update work field with display field
         work_field = display_field;
 
         if event::poll(std::time::Duration::from_millis(16))? {
