@@ -1,10 +1,10 @@
 use std::{
     io::{stdout, Result},
-    thread, time,
+    iter, thread, time,
 };
 
 use crossterm::{
-    event::{self, KeyCode, KeyEventKind},
+    event::{self, KeyCode, KeyEvent, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
@@ -27,22 +27,13 @@ fn main() -> Result<()> {
 
     // Initialize the original field
     // This will never change
-    let mut original_field: Vec<Vec<char>> = vec![vec!['_'; FIELD_COLUMNS]; FIELD_ROWS]
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|e| {
-                    let change: bool = rng.gen_bool(1.0 / 3.0);
-
-                    if change {
-                        ','
-                    } else {
-                        *e
-                    }
-                })
-                .collect()
-        })
-        .collect();
+    let mut original_field: Vec<Vec<char>> = iter::repeat_with(|| {
+        iter::repeat_with(|| if rng.gen_bool(1.0 / 3.0) { ',' } else { '_' })
+            .take(FIELD_COLUMNS)
+            .collect()
+    })
+    .take(FIELD_ROWS)
+    .collect();
 
     // Write RAIN
     original_field[FIELD_ROWS / 2][FIELD_COLUMNS / 2 - 2] = 'R';
@@ -61,23 +52,16 @@ fn main() -> Result<()> {
         let mut display_field = work_field
             .iter()
             .enumerate()
-            .map(|row| {
-                let mut new_row: Vec<char> = Vec::new();
-
-                for (i, e) in row.1.iter().enumerate() {
-                    let neighbors = get_neighbors(row.1, i);
-
-                    match neighbors {
-                        (_, Some(_), Some('o')) => new_row.push('('),
-                        (Some('o'), Some(_), _) => new_row.push(')'),
-                        (_, Some('('), _) | (_, Some('o'), _) | (_, Some(')'), _) => {
-                            new_row.push(original_field[row.0][i])
-                        }
-                        _ => new_row.push(*e),
-                    }
-                }
-
-                new_row
+            .map(|(y, row)| {
+                row.iter()
+                    .enumerate()
+                    .filter_map(|(x, c)| match get_neighbors(row, x) {
+                        (_, _, Some('o')) => Some('('),
+                        (Some('o'), _, _) => Some(')'),
+                        (_, '(', _) | (_, 'o', _) | (_, ')', _) => Some(original_field[y][x]),
+                        _ => Some(*c),
+                    })
+                    .collect()
             })
             .collect();
 
@@ -105,10 +89,13 @@ fn main() -> Result<()> {
         work_field = display_field;
 
         if event::poll(std::time::Duration::from_millis(16))? {
-            if let event::Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
-                }
+            if let event::Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                code: KeyCode::Char('q'),
+                ..
+            }) = event::read()?
+            {
+                break;
             }
         }
 
@@ -121,28 +108,22 @@ fn main() -> Result<()> {
 }
 
 fn get_available_cells(field: &Vec<Vec<char>>) -> Vec<(usize, usize)> {
-    let mut available_cells: Vec<(usize, usize)> = Vec::new();
-
-    for (y, row) in field.iter().enumerate() {
-        for (x, e) in row.iter().enumerate() {
-            match e {
-                '_' | ',' => available_cells.push((x, y)),
-                _ => (),
-            }
-        }
-    }
-
-    available_cells
+    field
+        .iter()
+        .enumerate()
+        .flat_map(|(y, row)| {
+            row.iter()
+                .enumerate()
+                // `move` captures parent and move them into current closure
+                .filter_map(move |(x, &c)| (c == '_' || c == ',').then_some((x, y)))
+        })
+        .collect()
 }
 
-fn get_neighbors(field: &Vec<char>, index: usize) -> (Option<char>, Option<char>, Option<char>) {
-    match index {
-        0 => (None, Some(field[index]), Some(field[index + 1])),
-        x if x == field.len() - 1 => (Some(field[index - 1]), Some(field[index]), None),
-        _ => (
-            Some(field[index - 1]),
-            Some(field[index]),
-            Some(field[index + 1]),
-        ),
-    }
+fn get_neighbors(field: &Vec<char>, index: usize) -> (Option<char>, char, Option<char>) {
+    (
+        (index != 0).then(|| field[index - 1]),
+        field[index],
+        (index != field.len() - 1).then(|| field[index + 1]),
+    )
 }
